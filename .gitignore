@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Xcode
+*.xcuserdata/
+**/xcuserdata/
+DerivedData/
+build/
+
+# Swift Package Manager
+.build/
+
+# Xcode project user settings
+xcuserdata/
+
+# Others
+*.swp
+*.lock

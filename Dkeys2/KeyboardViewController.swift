@@ -281,6 +281,7 @@ struct EnglishKeyboardView: View {
     @State private var showNumbers = false
     @State private var showSymbols = false
     @State private var isCapsLock = false
+    @State private var showEmoji = false
 
     let lettersRows = [
         ["Q","W","E","R","T","Y","U","I","O","P"],
@@ -304,11 +305,11 @@ struct EnglishKeyboardView: View {
                 Button(action: {
                     proxyWrapper.performGrammarCheck()
                 }) {
-                    Image(systemName: "checkmark.shield")
+                    Image(systemName: "service.dog.fill")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 24, height: 24)
-                        .padding(8)
+                        .foregroundColor(Color(UIColor.darkGray))
+                        .frame(width: 30, height: 30)
                 }
                 .background(Color(UIColor.systemGray5))
                 .cornerRadius(8)
@@ -340,21 +341,24 @@ struct EnglishKeyboardView: View {
                 Button(action: {
                     proxyWrapper.performRephrase()
                 }) {
-                    Image(systemName: "arrow.2.squarepath")
+                    Image(systemName: "text.badge.star")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 24, height: 24)
-                        .padding(8)
+                        .frame(width: 30, height: 30)
+                        .foregroundColor(Color(UIColor.darkGray))
                 }
                 .background(Color(UIColor.systemGray5))
-                .cornerRadius(8)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(Color(UIColor.systemGray4))
-            .cornerRadius(10)
+            .padding(.horizontal, 0)
+            .padding(.vertical, 0)
+            .background(Color(UIColor.systemGray5))
             
-            if showNumbers {
+            if(showEmoji){
+                EmojiKeyboardView(proxyWrapper: proxyWrapper, onClose: {
+                    showEmoji = false
+                })
+            }
+            else if showNumbers {
                 // Split numeric/symbol pages: numbers page vs symbol page
                 if showSymbols {
                     // Symbol page (three rows) - the third row's first button switches back to numbers
@@ -484,42 +488,44 @@ struct EnglishKeyboardView: View {
                   }
               }
              HStack(spacing: 4) {
-                 // Left-side toggles: when not showing numbers, show a 123 button to enter numbers page.
-                 // When in numbers page, provide both an ABC button (to go back to letters) and a #+= / 123 toggle.
-                 if showNumbers {
-                     Button(action: { showSymbols.toggle() }) {
-                         Text(showSymbols ? "123" : "#+=")
-                             .frame(width: 50, height: 44)
+                 if(showEmoji == false){
+                     // Left-side toggles: when not showing numbers, show a 123 button to enter numbers page.
+                     // When in numbers page, provide both an ABC button (to go back to letters) and a #+= / 123 toggle.
+                     if showNumbers {
+                         Button(action: { showNumbers = false; showSymbols = false }) {
+                             Text("ABC")
+                                 .frame(width: 50, height: 44)
+                                 .background(Color.gray.opacity(0.2))
+                                 .cornerRadius(8)
+                         }
+                         Button(action: { showEmoji = true }) {
+                             Image(systemName: "face.smiling")
+                         }
+                     } else {
+                         Button(action: { showNumbers = true; showSymbols = false }) {
+                             Text("123")
+                                 .frame(width: 50, height: 44)
+                                 .background(Color.gray.opacity(0.2))
+                                 .cornerRadius(8)
+                         }
+                         Button(action: { showEmoji = true }) {
+                             Image(systemName: "face.smiling")
+                         }
+                     }
+                     
+                     Button(action: { proxyWrapper.insertText(" ") }) {
+                         Text("space")
+                             .frame(minWidth: 120, maxWidth: .infinity, minHeight: 44)
                              .background(Color.gray.opacity(0.2))
                              .cornerRadius(8)
                      }
-                     Button(action: { showNumbers = false; showSymbols = false }) {
-                         Text("ABC")
-                             .frame(width: 50, height: 44)
-                             .background(Color.gray.opacity(0.2))
+                     Button(action: { proxyWrapper.insertText("\n") }) {
+                         Text("return")
+                             .frame(width: 70, height: 44)
+                             .background(Color.blue.opacity(0.8))
+                             .foregroundColor(.white)
                              .cornerRadius(8)
                      }
-                 } else {
-                     Button(action: { showNumbers = true; showSymbols = false }) {
-                         Text("123")
-                             .frame(width: 50, height: 44)
-                             .background(Color.gray.opacity(0.2))
-                             .cornerRadius(8)
-                     }
-                 }
-
-                 Button(action: { proxyWrapper.insertText(" ") }) {
-                     Text("space")
-                         .frame(minWidth: 120, maxWidth: .infinity, minHeight: 44)
-                         .background(Color.gray.opacity(0.2))
-                         .cornerRadius(8)
-                 }
-                 Button(action: { proxyWrapper.insertText("\n") }) {
-                     Text("return")
-                         .frame(width: 70, height: 44)
-                         .background(Color.blue.opacity(0.8))
-                         .foregroundColor(.white)
-                         .cornerRadius(8)
                  }
              }
          }
@@ -619,4 +625,97 @@ struct EnglishKeyboardView: View {
         self.proxyWrapper?.updateSuggestionsFromContext()
     }
 
+}
+
+struct EmojiKeyboardView: View {
+    @ObservedObject var proxyWrapper: TextDocumentProxyWrapper
+    var onClose: () -> Void
+    @State private var selectedCategory = 0
+
+    let categories = ["😀", "🌟", "🍎", "⚽", "🚗", "💡", "🎵", "🏁"]
+    let categoryNames = ["Smileys", "Nature", "Food", "Activity", "Travel", "Objects", "Symbols", "Flags"]
+
+    let emojiData: [[String]] = [
+        // Smileys & People
+["😀","😃","😄","😁","😆","😅","🤣","😂","🙂","🙃","😉","😊","😇","🥰","😍","🤩","😘","😗","☺️","😚","😙","🥲","😋","😛","😜","🤪","😝","🤑","🤗","🤭","🤫","🤔","🤐","🤨","😐","😑","😶","😏","😒","🙄","😬","🤥","😔","😪","🤤","😴","😷","🤒","🤕","🤢","🤮","🤧","🥵","🥶","🥴","😵","🤯","🤠","🥳","🥸","😎","🤓","🧐","😕","😟","🙁","☹️","😮","😯","😲","😳","🥺","😦","😧","😨","😰","😥","😢","😭","😱","😖","😣","😞","😓","😩","😫","🥱","😤","😡","😠","🤬","😈","👿","💀","☠️","💩","🤡","👹","👺","👻","👽","👾","🤖","😺","😸","😹","😻","😼","😽","🙀","😿","😾"],
+
+        // Nature
+        ["🌱","🌿","🍀","🍃","🍂","🍁","🌾","🌵","🌴","🌳","🌲","🌰","🌻","🌺","🌸","🌼","🌷","🥀","🌹","🌻","💐","🌾","🍄","🌿","🐻","🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐻‍❄️","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🐒","🐔","🐧","🐦","🐤","🐣","🐥","🦆","🦅","🦉","🦇","🐺","🐗","🐴","🦄","🐝","🐛","🦋","🐌","🐞","🐜","🦟","🦗","🕷️","🦂","🐢","🐍","🦎","🦖","🦕","🐙","🦑","🦐","🦞","🦀","🐡","🐠","🐟","🐬","🐳","🐋","🦈","🐊","🐅","🐆","🦓","🦍","🐘","🦛","🦏","🐪","🐫","🦒","🦘","🐃","🐂","🐄","🐎","🐖","🐏","🐑","🦙","🐐","🦌","🐕","🐩","🦮","🐕‍🦺","🐈","🐈‍⬛","🐓","🦃","🦚","🦜","🦢","🦩","🕊️","🐇","🦝","🦨","🦡","🦦","🦥","🐁","🐀","🐿️","🦔"],
+
+        // Food & Drink
+        ["🍎","🍐","🍊","🍋","🍌","🍉","🍇","🍓","🫐","🍈","🍒","🍑","🥭","🍍","🥥","🥝","🍅","🍆","🥑","🥦","🥬","🥒","🌶️","🫑","🌽","🥕","🫒","🧄","🧅","🥔","🍠","🥐","🥯","🍞","🥖","🥨","🧀","🥚","🍳","🧈","🥞","🧇","🥓","🥩","🍗","🍖","🦴","🌭","🍔","🍟","🍕","🫓","🥪","🥙","🧆","🌮","🌯","🫔","🥗","🥘","🫕","🍝","🍜","🍲","🍛","🍣","🍱","🥟","🦪","🍤","🍙","🍚","🍘","🍥","🥠","🥮","🍢","🍡","🍧","🍨","🍦","🥧","🧁","🍰","🎂","🍮","🍭","🍬","🍫","🍿","🍩","🍪","🌰","🥜","🍯","🥛","🍼","☕","🍵","🧃","🥤","🧋","🍶","🍺","🍻","🥂","🍷","🥃","🍸","🍹","🧉","🍾"],
+
+        // Activity & Sports
+        ["⚽","🏀","🏈","⚾","🥎","🎾","🏐","🏉","🥏","🎱","🪀","🏓","🏸","🏒","🏑","🥍","🏏","🪃","🥅","⛳","🪁","🏹","🎣","🤿","🥊","🥋","🎽","🛹","🛷","⛸️","🥌","🎿","⛷️","🏂","🪂","🏋️‍♀️","🏋️","🏋️‍♂️","🤼‍♀️","🤼","🤼‍♂️","🤸‍♀️","🤸","🤸‍♂️","⛹️‍♀️","⛹️","⛹️‍♂️","🤺","🤾‍♀️","🤾","🤾‍♂️","🏌️‍♀️","🏌️","🏌️‍♂️","🏇","🧘‍♀️","🧘","🧘‍♂️","🏄‍♀️","🏄","🏄‍♂️","🏊‍♀️","🏊","🏊‍♂️","🤽‍♀️","🤽","🤽‍♂️","🚣‍♀️","🚣","🚣‍♂️","🧗‍♀️","🧗","🧗‍♂️","🚵‍♀️","🚵","🚵‍♂️","🚴‍♀️","🚴","🚴‍♂️","🏆","🥇","🥈","🥉","🏅","🎖️","🏵️","🎗️"],
+
+        // Travel & Places
+        ["🚗","🚕","🚙","🚌","🚎","🏎️","🚓","🚑","🚒","🚐","🛻","🚚","🚛","🚜","🏍️","🛵","🚲","🛴","🛹","🛼","🚁","🛸","🚀","🛰️","💺","🛶","⛵","🚤","🛥️","🛳️","⛴️","🚢","⚓","⛽","🚧","🚦","🚥","🗺️","🗿","🗽","🗼","🏰","🏯","🏟️","🎡","🎢","🎠","⛲","⛱️","🏖️","🏝️","🏜️","🌋","⛰️","🏔️","🗻","🏕️","⛺","🛖","🏠","🏡","🏘️","🏚️","🏗️","🏭","🏢","🏬","🏣","🏤","🏥","🏦","🏨","🏪","🏫","🏩","💒","🏛️","⛪","🕌","🕍","🛕","🕋","⛩️","🛤️","🛣️","🗾","🎑","🏞️","🌅","🌄","🌠","🎇","🎆","🌇","🌆","🏙️","🌃","🌌","🌉","🌁"],
+
+        // Objects & Symbols
+        ["⌚","📱","📲","💻","⌨️","🖥️","🖨️","🖱️","🖲️","🕹️","🗜️","💽","💾","💿","📀","📼","📷","📸","📹","🎥","📽️","🎞️","📞","☎️","📟","📠","📺","📻","🎙️","🎚️","🎛️","🧭","⏱️","⏲️","⏰","🕰️","⌛","⏳","📡","🔋","🔌","💡","🔦","🕯️","🪔","🧯","🛢️","💸","💵","💴","💶","💷","💰","💳","💎","⚖️","🧰","🔧","🔨","⚒️","🛠️","⛏️","🔩","⚙️","🧱","⛓️","🧲","🔫","💣","🧨","🪓","🔪","🗡️","⚔️","🛡️","🚬","⚰️","🪦","⚱️","🏺","🔮","📿","🧿","💈","⚗️","🔭","🔬","🕳️","🩹","🩺","💊","💉","🧬","🦠","🧫","🧪","🌡️","🧹","🧺","🧻","🚽","🚰","🚿","🛁","🛀","🧴","🧷","🧸","🧵","🪡","🧶","🪢","👓","🕶️","🥽","🥼","🦺","👔","👕","👖","🧣","🧤","🧥","🧦","👗","👘","🥻","🩱","🩲","🩳","👙","👚","👛","👜","👝","🛍️","🎒","👞","👟","🥾","🥿","👠","👡","🩰","👢","👑","👒","🎩","🎓","🧢","⛑️","📿","💄","💍","💎"],
+
+        // Symbols
+        ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","❣️","💕","💞","💓","💗","💖","💘","💝","💟","☮️","✝️","☪️","🕉️","☸️","✡️","🔯","🕎","☯️","☦️","🛐","⛎","♈","♉","♊","♋","♌","♍","♎","♏","♐","♑","♒","♓","🆔","⚛️","🉑","☢️","☣️","📴","📳","🈶","🈚","🈸","🈺","🈷️","✴️","🆚","💮","🉐","㊙️","㊗️","🈴","🈵","🈹","🈲","🅰️","🅱️","🆎","🆑","🅾️","🆘","❌","⭕","🛑","⛔","📛","🚫","💯","💢","♨️","🚷","🚯","🚳","🚱","🔞","📵","🚭","❗","❕","❓","❔","‼️","⁉️","🔅","🔆","〽️","⚠️","🚸","🔱","⚜️","🔰","♻️","✅","🈯","💹","❇️","✳️","❎","🌐","💠","Ⓜ️","🌀","💤","🏧","🚾","♿","🅿️","🈳","🈂️","🛂","🛃","🛄","🛅","🚹","🚺","🚼","🚻","🚮","🎦","📶","🈁","🔣","ℹ️","🔤","🔡","🔠","🆖","🆗","🆙","🆒","🆕","🆓","0️⃣","1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"],
+
+        // Flags
+        ["🏁","🚩","🏴","🏳️","🏳️‍🌈","🏳️‍⚧️","🏴‍☠️","🇦🇫","🇦🇽","🇦🇱","🇩🇿","🇦🇸","🇦🇩","🇦🇴","🇦🇮","🇦🇶","🇦🇬","🇦🇷","🇦🇲","🇦🇼","🇦🇺","🇦🇹","🇦🇿","🇧🇸","🇧🇭","🇧🇩","🇧🇧","🇧🇾","🇧🇪","🇧🇿","🇧🇯","🇧🇲","🇧🇹","🇧🇴","🇧🇦","🇧🇼","🇧🇷","🇮🇴","🇻🇬","🇧🇳","🇧🇬","🇧🇫","🇧🇮","🇰🇭","🇨🇲","🇨🇦","🇮🇨","🇨🇻","🇧🇶","🇰🇾","🇨🇫","🇹🇩","🇨🇱","🇨🇳","🇨🇽","🇨🇨","🇨🇴","🇰🇲","🇨🇬","🇨🇩","🇨🇰","🇨🇷","🇨🇮","🇭🇷","🇨🇺","🇨🇼","🇨🇾","🇨🇿","🇩🇰","🇩🇯","🇩🇲","🇩🇴","🇪🇨","🇪🇬","🇸🇻","🇬🇶","🇪🇷","🇪🇪","🇪🇹","🇪🇺","🇫🇰","🇫🇷","🇫🇯","🇫🇮","🇫🇷","🇬🇫","🇵🇫","🇹🇫","🇬🇦","🇬🇲","🇬🇪","🇩🇪","🇬🇭","🇬🇮","🇬🇷","🇬🇱","🇬🇩","🇬🇵","🇬🇺","🇬🇹","🇬🇬","🇬🇳","🇬🇼","🇬🇾","🇭🇹","🇭🇳","🇭🇰","🇭🇺","🇮🇸","🇮🇳","🇮🇩","🇮🇷","🇮🇶","🇮🇪","🇮🇲","🇮🇱","🇮🇹","🇯🇲","🇯🇵","🎌","🇯🇪","🇯🇴","🇰🇿","🇰🇪","🇰🇮","🇽🇰","🇰🇼","🇰🇬","🇱🇦","🇱🇻","🇱🇧","🇱🇸","🇱🇷","🇱🇾","🇱🇮","🇱🇹","🇱🇺","🇲🇴","🇲🇰","🇲🇬","🇲🇼","🇲🇾","🇲🇻","🇲🇱","🇲🇹","🇲🇭","🇲🇶","🇲🇷","🇲🇺","🇾🇹","🇲🇽","🇫🇲","🇲🇩","🇲🇨","🇲🇳","🇲🇪","🇲🇸","🇲🇦","🇲🇿","🇲🇲","🇳🇦","🇳🇷","🇳🇵","🇳🇱","🇳🇨","🇳🇿","🇳🇮","🇳🇪","🇳🇬","🇳🇺","🇳🇫","🇰🇵","🇲🇵","🇳🇴","🇴🇲","🇵🇰","🇵🇼","🇵🇸","🇵🇦","🇵🇬","🇵🇾","🇵🇪","🇵🇭","🇵🇳","🇵🇱","🇵🇹","🇵🇷","🇶🇦","🇷🇪","🇷🇴","🇷🇺","🇷🇼","🇼🇸","🇸🇲","🇸🇹","🇸🇦","🇸🇳","🇷🇸","🇸🇨","🇸🇱","🇸🇬","🇸🇽","🇸🇰","🇸🇮","🇬🇸","🇸🇧","🇸🇴","🇿🇦","🇰🇷","🇸🇸","🇪🇸","🇱🇰","🇧🇱","🇸🇭","🇰🇳","🇱🇨","🇵🇲","🇻🇨","🇸🇩","🇸🇷","🇸🇯","🇸🇿","🇸🇪","🇨🇭","🇸🇾","🇹🇼","🇹🇯","🇹🇿","🇹🇭","🇹🇱","🇹🇬","🇹🇰","🇹🇴","🇹🇹","🇹🇳","🇹🇷","🇹🇲","🇹🇨","🇹🇻","🇻🇮","🇺🇬","🇺🇦","🇦🇪","🇬🇧","🏴","🏴","🏴","🇺🇸","🇺🇾","🇺🇿","🇻🇺","🇻🇦","🇻🇪","🇻🇳","🇼🇫","🇪🇭","🇾🇪","🇿🇲","🇿🇼"]
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Category tabs
+            HStack(spacing: 2) {
+                Button(action: onClose) {
+                    Text("ABC")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white)
+                        .frame(width: 40, height: 24)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(8)
+                }
+                ForEach(0..<categories.count, id: \.self) { index in
+                    Button(action: { selectedCategory = index }) {
+                        Text(categories[index])
+                            .font(.system(size: 20))
+                            .frame(maxWidth: .infinity, minHeight: 24)
+                            .background(selectedCategory == index ? Color.gray.opacity(0.6) : Color.gray.opacity(0.1))
+                            .cornerRadius(8)
+                    }
+                }
+                Button(action: { proxyWrapper.deleteBackward() }) {
+                    Image(systemName: "delete.left")
+                        .frame(width: 40, height: 24)
+                        .font(Font.system(size: 16, design: .default))
+                        .fontWeight(Font.Weight.semibold)
+                        .fontWidth(Font.Width.standard)
+                        .foregroundColor(Color(UIColor.black))
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(8)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 6)
+
+            // Emoji grid
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 8), spacing: 6) {
+                    ForEach(emojiData[selectedCategory], id: \.self) { emoji in
+                        Button(action: {
+                            proxyWrapper.insertText(emoji)
+                        }) {
+                            Text(emoji)
+                                .font(.system(size: 28))
+                                .frame(width: 40, height: 40)
+                                .background(Color.clear)
+                        }
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+            }
+
+        }
+        .background(Color(UIColor.systemGray6))
+        .cornerRadius(10)
+    }
 }

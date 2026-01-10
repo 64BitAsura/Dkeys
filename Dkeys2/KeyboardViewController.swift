@@ -9,6 +9,29 @@ import UIKit
 import SwiftUI
 import Combine
 
+// MARK: - Grammar Check Models
+struct GrammarCorrection: Codable, Identifiable {
+    let id = UUID()
+    var location: CorrectionLocation
+    let oldText: String
+    let newText: String
+    let explanation: String
+    
+    enum CodingKeys: String, CodingKey {
+        case location, oldText, newText, explanation
+    }
+}
+
+struct CorrectionLocation: Codable {
+    var start: Int
+    var end: Int
+}
+
+struct GrammarCheckResponse: Codable {
+    let corrections: [GrammarCorrection]
+    let count: Int
+}
+
 class TextDocumentProxyWrapper: ObservableObject {
     let objectWillChange = ObservableObjectPublisher()
     
@@ -149,10 +172,64 @@ class TextDocumentProxyWrapper: ObservableObject {
         }
     }
 
-    // Placeholder: populate suggestions after a grammar check (keeps behavior existing callers expect)
+    // Grammar corrections from API
+    @Published var grammarCorrections: [GrammarCorrection] = []
+    @Published var showGrammarCanvas = false
+    @Published var isLoadingGrammar = false
+    
+    // Perform grammar check using the API endpoint
     func performGrammarCheck() {
-        // For now reuse the dictionary-based suggestions to keep results consistent
-        updateSuggestionsFromContext()
+        guard let proxy = proxy else { return }
+        
+        // Get the text context to check
+        let contextBefore = proxy.documentContextBeforeInput ?? ""
+        let contextAfter = proxy.documentContextAfterInput ?? ""
+        let fullText = contextBefore + contextAfter
+        
+        guard !fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        
+        isLoadingGrammar = true
+        objectWillChange.send()
+        
+        // Create the API request
+        guard let url = URL(string: "http://80.68.231.165:3000/grammar/fix") else { return }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let payload = ["text": fullText]
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        } catch {
+            isLoadingGrammar = false
+            objectWillChange.send()
+            return
+        }
+        
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                self?.isLoadingGrammar = false
+                
+                guard let data = data, error == nil else {
+                    self?.objectWillChange.send()
+                    return
+                }
+                
+                do {
+                    let result = try JSONDecoder().decode(GrammarCheckResponse.self, from: data)
+                    self?.grammarCorrections = result.corrections
+                    self?.showGrammarCanvas = !result.corrections.isEmpty
+                    self?.objectWillChange.send()
+                } catch {
+                    print("Failed to decode grammar response: \(error)")
+                    self?.objectWillChange.send()
+                }
+            }
+        }.resume()
     }
 
     // Placeholder: populate rephrase suggestions (keeps an explicit action; uses a simple fallback)
@@ -531,6 +608,39 @@ struct EnglishKeyboardView: View {
          }
          .padding(8)
          .background(Color(UIColor.systemGray5))
+         .overlay(
+             // Grammar Canvas Overlay
+             Group {
+                 if proxyWrapper.showGrammarCanvas {
+                     GrammarCanvasView(proxyWrapper: proxyWrapper)
+                 }
+             }
+         )
+         .overlay(
+             // Loading indicator for grammar check
+             Group {
+                 if proxyWrapper.isLoadingGrammar {
+                     ZStack {
+                         Color.black.opacity(0.3)
+                             .edgesIgnoringSafeArea(.all)
+                         
+                         VStack {
+                             ProgressView()
+                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                 .scaleEffect(1.2)
+                             
+                             Text("Checking grammar...")
+                                 .foregroundColor(.white)
+                                 .font(.caption)
+                                 .padding(.top, 8)
+                         }
+                         .padding()
+                         .background(Color.black.opacity(0.7))
+                         .cornerRadius(12)
+                     }
+                 }
+             }
+         )
          
      }
 
@@ -624,7 +734,312 @@ struct EnglishKeyboardView: View {
         // Also update suggestions to reflect the current context
         self.proxyWrapper?.updateSuggestionsFromContext()
     }
+}
 
+// MARK: - Grammar Canvas View
+struct GrammarCanvasView: View {
+    @ObservedObject var proxyWrapper: TextDocumentProxyWrapper
+    
+    var body: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    proxyWrapper.showGrammarCanvas = false
+                }
+            
+            // Canvas card
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Text("Grammar Check")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    
+                    Spacer()
+                    
+                    Button("Done") {
+                        proxyWrapper.showGrammarCanvas = false
+                    }
+                    .foregroundColor(.blue)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                
+                Divider()
+                
+                // Corrections list
+                if proxyWrapper.isLoadingGrammar {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("Checking grammar...")
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+                } else if proxyWrapper.grammarCorrections.isEmpty {
+                    VStack(spacing: 16) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.green)
+                        Text("No grammar issues found!")
+                            .font(.title3)
+                            .fontWeight(.medium)
+                        Text("Your text looks good.")
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(proxyWrapper.grammarCorrections) { correction in
+                                CorrectionCardView(
+                                    correction: correction,
+                                    onApply: { appliedCorrection in
+                                        applyCorrection(appliedCorrection)
+                                    }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+                }
+            }
+            .background(Color(UIColor.systemBackground))
+            .cornerRadius(16)
+            .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 40)
+        }
+    }
+    
+    private func applyCorrection(_ correction: GrammarCorrection) {
+        // Get current text context
+        guard let proxy = proxyWrapper.proxy else { return }
+        
+        // Get the current full text to work with
+        let contextBefore = proxy.documentContextBeforeInput ?? ""
+        let contextAfter = proxy.documentContextAfterInput ?? ""
+        let currentFullText = contextBefore + contextAfter
+        
+        // Apply the correction with proper position tracking
+        let success = replaceTextAtPosition(
+            fullText: currentFullText,
+            correction: correction,
+            proxy: proxy
+        )
+        
+        if success {
+            // Calculate the length change from this correction
+            let lengthChange = correction.newText.count - correction.oldText.count
+            
+            // Update positions of all remaining corrections that come after this one
+            for i in 0..<proxyWrapper.grammarCorrections.count {
+                let otherCorrection = proxyWrapper.grammarCorrections[i]
+                
+                // Skip the correction we just applied
+                if otherCorrection.id == correction.id { continue }
+                
+                // If the other correction starts after the end of this correction,
+                // adjust its position by the length change
+                if otherCorrection.location.start >= correction.location.end {
+                    proxyWrapper.grammarCorrections[i].location.start += lengthChange
+                    proxyWrapper.grammarCorrections[i].location.end += lengthChange
+                }
+                // If the other correction overlaps with this one, it may need special handling
+                else if otherCorrection.location.start < correction.location.end &&
+                        otherCorrection.location.end > correction.location.start {
+                    // Mark overlapping corrections for removal or special handling
+                    print("Warning: Overlapping correction detected for '\(otherCorrection.oldText)'")
+                }
+            }
+            
+            // Remove the applied correction from the list
+            proxyWrapper.grammarCorrections.removeAll { $0.id == correction.id }
+        } else {
+            print("Failed to apply correction for '\(correction.oldText)'")
+        }
+        
+        // Close canvas if no more corrections
+        if proxyWrapper.grammarCorrections.isEmpty {
+            proxyWrapper.showGrammarCanvas = false
+        }
+        
+        proxyWrapper.objectWillChange.send()
+    }
+    
+    private func replaceTextAtPosition(fullText: String, correction: GrammarCorrection, proxy: UITextDocumentProxy) -> Bool {
+        // Validate correction bounds
+        guard correction.location.start >= 0,
+              correction.location.end <= fullText.count,
+              correction.location.start < correction.location.end else {
+            print("Invalid correction bounds: start=\(correction.location.start), end=\(correction.location.end), textLength=\(fullText.count)")
+            return false
+        }
+        
+        // Extract the text at the specified location
+        let startIndex = fullText.index(fullText.startIndex, offsetBy: correction.location.start)
+        let endIndex = fullText.index(fullText.startIndex, offsetBy: correction.location.end)
+        let textAtLocation = String(fullText[startIndex..<endIndex])
+        
+        // Verify it matches what we expect
+        guard textAtLocation == correction.oldText else {
+            print("Text mismatch at location - expected: '\(correction.oldText)', found: '\(textAtLocation)'")
+            // Try fallback search-based replacement
+            return searchAndReplaceText(oldText: correction.oldText, newText: correction.newText, proxy: proxy)
+        }
+        
+        // Calculate current cursor position
+        let contextBefore = proxy.documentContextBeforeInput ?? ""
+        let currentCursorPosition = contextBefore.count
+        
+        // Now perform the replacement based on where the error is relative to cursor
+        if correction.location.end <= currentCursorPosition {
+            // Error is entirely before the cursor
+            return replaceTextBeforeCursor(correction: correction, cursorPosition: currentCursorPosition, proxy: proxy)
+        } else if correction.location.start >= currentCursorPosition {
+            // Error is entirely after the cursor
+            return replaceTextAfterCursor(correction: correction, cursorPosition: currentCursorPosition, proxy: proxy)
+        } else {
+            // Error spans the cursor position
+            return replaceTextSpanningCursor(correction: correction, cursorPosition: currentCursorPosition, proxy: proxy)
+        }
+    }
+    
+    private func replaceTextBeforeCursor(correction: GrammarCorrection, cursorPosition: Int, proxy: UITextDocumentProxy) -> Bool {
+        // Move cursor back to the end of the error text
+        let moveBackDistance = cursorPosition - correction.location.end
+        
+        // Use deleteBackward to move back and delete
+        let totalDeleteCount = moveBackDistance + correction.oldText.count
+        for _ in 0..<totalDeleteCount {
+            proxy.deleteBackward()
+        }
+        
+        // Insert the corrected text
+        proxy.insertText(correction.newText)
+        return true
+    }
+    
+    private func replaceTextAfterCursor(correction: GrammarCorrection, cursorPosition: Int, proxy: UITextDocumentProxy) -> Bool {
+        // For text after cursor, we have limited options with UITextDocumentProxy
+        // Use a safer approach - try to select and replace if possible
+        
+        // Calculate how far forward the error is
+        let moveForwardDistance = correction.location.start - cursorPosition
+        
+        // We can't easily move forward in UITextDocumentProxy, so use search-based fallback
+        return searchAndReplaceText(oldText: correction.oldText, newText: correction.newText, proxy: proxy)
+    }
+    
+    private func replaceTextSpanningCursor(correction: GrammarCorrection, cursorPosition: Int, proxy: UITextDocumentProxy) -> Bool {
+        // Delete backwards to the start of the error
+        let deleteBackCount = cursorPosition - correction.location.start
+        for _ in 0..<deleteBackCount {
+            proxy.deleteBackward()
+        }
+        
+        // Calculate remaining characters to delete (after cursor position)
+        let remainingDeleteCount = correction.location.end - cursorPosition
+        for _ in 0..<remainingDeleteCount {
+            proxy.deleteBackward()
+        }
+        
+        // Insert the corrected text
+        proxy.insertText(correction.newText)
+        return true
+    }
+    
+    private func searchAndReplaceText(oldText: String, newText: String, proxy: UITextDocumentProxy) -> Bool {
+        // Fallback method using text search
+        let contextBefore = proxy.documentContextBeforeInput ?? ""
+        
+        // Look for exact suffix match (most reliable)
+        if contextBefore.hasSuffix(oldText) {
+            for _ in 0..<oldText.count {
+                proxy.deleteBackward()
+            }
+            proxy.insertText(newText)
+            return true
+        }
+        
+        // Look for the text anywhere in the context before cursor
+        if let range = contextBefore.range(of: oldText, options: .backwards) {
+            let suffixLength = contextBefore.distance(from: range.upperBound, to: contextBefore.endIndex)
+            let totalDeleteCount = suffixLength + oldText.count
+            
+            for _ in 0..<totalDeleteCount {
+                proxy.deleteBackward()
+            }
+            proxy.insertText(newText)
+            return true
+        }
+        
+        print("Could not find text '\(oldText)' to replace")
+        return false
+    }
+}
+
+// MARK: - Correction Card View
+struct CorrectionCardView: View {
+    let correction: GrammarCorrection
+    let onApply: (GrammarCorrection) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Error text comparison
+            HStack(spacing: 8) {
+                // Original text (crossed out)
+                Text(correction.oldText)
+                    .strikethrough()
+                    .foregroundColor(.red)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.red.opacity(0.1))
+                    .cornerRadius(6)
+                
+                Image(systemName: "arrow.right")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
+                
+                // Suggested text
+                Text(correction.newText)
+                    .foregroundColor(.green)
+                    .fontWeight(.medium)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.green.opacity(0.1))
+                    .cornerRadius(6)
+            }
+            
+            // Explanation
+            Text(correction.explanation)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            
+            // Apply button
+            HStack {
+                Spacer()
+                Button("Apply Fix") {
+                    onApply(correction)
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.blue)
+                .cornerRadius(8)
+                .font(.caption.weight(.medium))
+            }
+        }
+        .padding(12)
+        .background(Color(UIColor.secondarySystemBackground))
+        .cornerRadius(10)
+    }
 }
 
 struct EmojiKeyboardView: View {
